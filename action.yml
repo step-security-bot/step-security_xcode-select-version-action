@@ -1,0 +1,13 @@
+name: "Xcode Select Version"
+author: 'step-security'
+description: "Makes an already-installed Xcode version the active one for the rest of the job"
+branding:
+  icon: 'check-circle'
+  color: 'orange'
+inputs:
+  xcode-select-version:
+    description: "Version of an Xcode present on the runner image, for example 16.4"
+    required: true
+runs:
+  using: 'node24'
+  main: 'dist/index.js'

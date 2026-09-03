@@ -1,0 +1,121 @@
+name: Test
+
+# Exercises the committed dist/ on real runner images. The unit tests in
+# check-dist.yml mock the filesystem and the process spawn, so they cannot catch
+# a wrong bundle path or a sudo that is not permitted; only a real macOS runner
+# can. Every version below is deliberately not the image default, so a step that
+# silently did nothing would leave the developer directory unchanged and fail
+# the assertion.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    name: ${{ matrix.runner }} / Xcode ${{ matrix.version }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.actor == 'dependabot[bot]' && '[{"runner":"macos-15","version":"16.2"}]' || '[{"runner":"macos-15","version":"16.2"},{"runner":"macos-15","version":"26.0.1"},{"runner":"macos-26","version":"26.5"},{"runner":"macos-26","version":"26.4"}]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Record the image default
+        id: before
+        run: echo "path=$(xcode-select -p)" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode ${{ matrix.version }}
+        uses: ./
+        with:
+          xcode-select-version: ${{ matrix.version }}
+
+      - name: Assert the developer directory moved to the requested Xcode
+        env:
+          VERSION: ${{ matrix.version }}
+          BEFORE: ${{ steps.before.outputs.path }}
+        run: |
+          expected="/Applications/Xcode_${VERSION}.app/Contents/Developer"
+          actual="$(xcode-select -p)"
+
+          echo "before:   $BEFORE"
+          echo "expected: $expected"
+          echo "actual:   $actual"
+
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::developer directory is $actual, expected $expected"
+            exit 1
+          fi
+
+          if [ "$actual" = "$BEFORE" ]; then
+            echo "::error::developer directory never changed, so the test proves nothing"
+            exit 1
+          fi
+
+      - name: Assert the toolchain a later step sees is the selected one
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          xcodebuild -version
+
+          # This step is a plain `run`, so it proves the switch is visible to
+          # everything after the action, not just inside it.
+          reported="$(xcodebuild -version | head -1 | awk '{print $2}')"
+          echo "requested: $VERSION"
+          echo "reported:  $reported"
+
+          # A prefix match, because an alias resolves to the bundle it points
+          # at: asking for 26.4 legitimately reports 26.4.1.
+          case "$reported" in
+            "$VERSION"*) ;;
+            *)
+              echo "::error::xcodebuild reports $reported, which is not $VERSION"
+              exit 1
+              ;;
+          esac
+
+  reject-missing-version:
+    name: Absent version fails the step
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Request a version no image ships
+        id: absent
+        continue-on-error: true
+        uses: ./
+        with:
+          xcode-select-version: "0.0-does-not-exist"
+
+      - name: Assert the step failed rather than passing silently
+        env:
+          OUTCOME: ${{ steps.absent.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "::error::expected failure for an uninstalled version, got $OUTCOME"
+            exit 1
+          fi
+
+      - name: Assert the failed step left the developer directory alone
+        run: |
+          # A failure must not have run xcode-select at all; the image default
+          # has to survive intact.
+          actual="$(xcode-select -p)"
+          echo "developer directory: $actual"
+          case "$actual" in
+            *0.0-does-not-exist*)
+              echo "::error::a failed selection still changed the developer directory"
+              exit 1
+              ;;
+          esac
