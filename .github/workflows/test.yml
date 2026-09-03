@@ -27,8 +27,13 @@ jobs:
       matrix:
         include: ${{ fromJSON(github.actor == 'dependabot[bot]' && '[{"runner":"macos-15","version":"16.2"}]' || '[{"runner":"macos-15","version":"16.2"},{"runner":"macos-15","version":"26.0.1"},{"runner":"macos-26","version":"26.5"},{"runner":"macos-26","version":"26.4"}]') }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Record the image default
         id: before
@@ -87,8 +92,13 @@ jobs:
     name: Absent version fails the step
     runs-on: macos-15
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Request a version no image ships
         id: absent
